@@ -413,8 +413,8 @@ package riscv;
         CSR_MMIS_PREDICT    = 12'hB0E,  // Branch mis-predicted
         CSR_MSB_FULL        = 12'hB0F,  // Scoreboard full
         CSR_MIF_EMPTY       = 12'hB10,  // instruction fetch queue empty
-        CSR_MHPM_COUNTER_17 = 12'hB11,  // reserved
-        CSR_MHPM_COUNTER_18 = 12'hB12,  // reserved
+        CSR_IPREF_MISS      = 12'hB11,  // reserved. imad: Instruction Prefetcher Misses
+        CSR_IPREF_HIT       = 12'hB12,  // reserved. imad: Instruction Prefetcher Hits
         CSR_MHPM_COUNTER_19 = 12'hB13,  // reserved
         CSR_MHPM_COUNTER_20 = 12'hB14,  // reserved
         CSR_MHPM_COUNTER_21 = 12'hB15,  // reserved

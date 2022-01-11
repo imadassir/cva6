@@ -725,8 +725,8 @@ module arbiter #(
         data_rdata_o[req_q.id]    = data_rdata_i;
 
         case (state_q)
-
-            IDLE: begin
+            //TODO(imad): here, check requests from stream buffer also.
+            IDLE: begin 
                 // wait for incoming requests
                 for (int unsigned i = 0; i < NR_PORTS; i++) begin
                     if (data_req_i[i] == 1'b1) begin

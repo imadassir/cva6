@@ -21,7 +21,8 @@ module stream_buffer import ariane_pkg::*; #(
     parameter DATA_WIDTH = 32,
     parameter ADDR_WIDTH = 32,
     parameter TAG_SIZE = ICACHE_TAG_WIDTH, //tag size according to ariane_pkg
-    parameter CL_SIZE = ICACHE_LINE_WIDTH //cache line size according to ariane_pkg (in bits)
+    parameter CL_SIZE = ICACHE_LINE_WIDTH, //cache line size according to ariane_pkg (in bits)
+    parameter LOG2_PAGE_SIZE = 12   //assuming 4K pages
 ) (
     input logic clk_i,
     input logic rst_ni,
@@ -41,7 +42,6 @@ module stream_buffer import ariane_pkg::*; #(
     output logic req_toMem_o,   //memory request
     input logic [CL_SIZE-1:0] data_fromMem_i,   //data coming from memory
     input logic mem_req_done_i  //memory request completed
-    //input logic req_fromMem_valid //the request from memory is valid (i.e. not bypassing page boundaries). TODO: check if should be input or interior logic
  );
     
     //Stream Buffer Entries
@@ -53,14 +53,18 @@ module stream_buffer import ariane_pkg::*; #(
     logic [SB_ADDR_DEPTH-1:0] read_pointer_n, read_pointer_q, write_pointer_n, write_pointer_q;
     // keep a counter to keep track of the current queue status
     logic [SB_ADDR_DEPTH:0] status_cnt_n, status_cnt_q;  // this integer will be truncated by the synthesis tool
+    //latest address requested from memory
+    logic [ADDR_WIDTH-1:0] latest_addr_toMem_n, latest_addr_toMem_q;
+    
+    //logic req_toMem_valid; //the request from memory is valid (i.e. not bypassing page boundaries).
   
 ////////////////////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////BEGIN LOGIC//////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////////
     
     logic  req_tag;
-    assign req_tag = addr_fromCache_i[ADDR_WIDTH-1:ADDR_WIDTH-TAG_SIZE]; //TODO: double check that
-    
+    assign req_tag = addr_fromCache_i[ADDR_WIDTH-1:ADDR_WIDTH-TAG_SIZE]; //TODO: double check that. Edit: Seems right on paper.
+        
     // status flags
     assign SB_full_o  = (status_cnt_q == SB_DEPTH );
     assign SB_empty_o = (status_cnt_q == 0);
@@ -72,6 +76,7 @@ module stream_buffer import ariane_pkg::*; #(
         read_pointer_n  = read_pointer_q;
         write_pointer_n = write_pointer_q;
         status_cnt_n    = status_cnt_q;
+        latest_addr_toMem_n = latest_addr_toMem_q;
         pf_data_o       = (req_tag == SB_tags_q[read_pointer_q] && SB_available_q[read_pointer_q])? SB_data_q[read_pointer_q]: 0;     //if matching tag and available, read it.
         SB_tags_n       = SB_tags_q;
         SB_available_n  = SB_available_q;
@@ -107,18 +112,23 @@ module stream_buffer import ariane_pkg::*; #(
                 read_pointer_n  = '0;
                 write_pointer_n = '0;
                 status_cnt_n    = '0;
-                
-                //and insert the new request into the SB with available=0
-                SB_tags_n[write_pointer_n] = req_tag;
-                SB_available_n[write_pointer_n] = 0;
-                SB_data_n[write_pointer_n] = '0;
-                
-                //send request to memory
-                req_toMem_o = 1; 
-                addr_toMem_o= addr_fromCache_i;
-                
-                //wait for request 
-                //TODO: should I say that the block was found in this case?
+                latest_addr_toMem_n = '0;
+                 
+                //check if next cache line is within same page.
+                //TODO: would it better to make 1 wire and assign to it the value of addr_fromCache_i+CL_SIZE, instead of doing it 3 times?
+                if(((addr_fromCache_i >> LOG2_PAGE_SIZE) << LOG2_PAGE_SIZE) == (((addr_fromCache_i+CL_SIZE) >> LOG2_PAGE_SIZE) << LOG2_PAGE_SIZE)) begin
+                    //send request for next cache line to memory 
+                    addr_toMem_o = addr_fromCache_i + CL_SIZE;
+                    latest_addr_toMem_n = addr_fromCache_i + CL_SIZE;
+                    req_toMem_o  = 1;
+                    //... and insert the new request into the SB with available=0
+                    SB_tags_n[write_pointer_n] = addr_toMem_o[ADDR_WIDTH-1:ADDR_WIDTH-TAG_SIZE];
+                    SB_available_n[write_pointer_n] = 0;
+                    SB_data_n[write_pointer_n] = '0;
+                end else begin
+                        //error: cannot prefetch past page boundary because do not know its physical address, and it is highly unprobable that the next virtual page also corresponds to the adjacent physical page.
+                        $warning(1, "cannot prefetch past page boundary");
+                end
             end
         end
         
@@ -137,8 +147,19 @@ module stream_buffer import ariane_pkg::*; #(
             
             //fetch the new cache block IF NOT FULL after that write 
             if(status_cnt_q < SB_DEPTH-1 ) begin //because if it were >= SB_DEPTH-1, then the above write filled it
-                addr_toMem_o = data_fromMem_i + CL_SIZE; //TODO: check what is the next read address, and check if it is in the same page.
-                req_toMem_o  = 1;
+                if(((latest_addr_toMem_q >> LOG2_PAGE_SIZE) << LOG2_PAGE_SIZE) == (((latest_addr_toMem_q+CL_SIZE) >> LOG2_PAGE_SIZE) << LOG2_PAGE_SIZE)) begin
+                    //insert the new request into the SB with available=0
+                    SB_tags_n[write_pointer_n] = req_tag;
+                    SB_available_n[write_pointer_n] = 0;
+                    SB_data_n[write_pointer_n] = '0;
+                    
+                    addr_toMem_o = latest_addr_toMem_q + CL_SIZE;
+                    latest_addr_toMem_n = latest_addr_toMem_q + CL_SIZE;
+                    req_toMem_o  = 1;
+                end else begin
+                        //error: cannot prefetch past page boundary because do not know its physical address, and it is highly unprobable that the next virtual page also corresponds to the adjacent physical page.
+                        $warning(1, "cannot prefetch past page boundary");
+                end
             end  
         end
     end
@@ -172,10 +193,12 @@ module stream_buffer import ariane_pkg::*; #(
       SB_tags_q      <= '0;
       SB_available_q <= '0;
       SB_data_q      <= '0;
+      latest_addr_toMem_q <= '0;
     end else begin
       SB_tags_q      <= SB_tags_n;
       SB_available_q <= SB_available_n;
       SB_data_q      <= SB_data_n;
+      latest_addr_toMem_q <= latest_addr_toMem_n;
     end
     end
     

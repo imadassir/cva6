@@ -39,12 +39,15 @@ module perf_counters import ariane_pkg::*; (
   // from PC Gen
   input  exception_t                              ex_i,
   input  logic                                    eret_i,
-  input  bp_resolve_t                             resolved_branch_i
+  input  bp_resolve_t                             resolved_branch_i//,
+  // from I-prefetcher (miss_handler.sv)
+  //input  logic                                    ipref_miss_i, //TODO(imad): prefetcher perf counters
+  //input  logic                                    ipref_hit_i
 );
   localparam logic [6:0] RegOffset = riscv::CSR_ML1_ICACHE_MISS >> 5;
 
-  logic [riscv::CSR_MIF_EMPTY : riscv::CSR_ML1_ICACHE_MISS][riscv::XLEN-1:0] perf_counter_d, perf_counter_q;
-
+  logic [riscv::CSR_MIF_EMPTY : riscv::CSR_ML1_ICACHE_MISS][riscv::XLEN-1:0] perf_counter_d, perf_counter_q; 
+  //logic [riscv::CSR_MHPM_COUNTER_18 : riscv::CSR_ML1_ICACHE_MISS][riscv::XLEN-1:0] perf_counter_d, perf_counter_q; //TODO(imad): prefetcher perf counters
   always_comb begin : perf_counters
     perf_counter_d = perf_counter_q;
     data_o = 'b0;
@@ -65,6 +68,12 @@ module perf_counters import ariane_pkg::*; (
 
       if (dtlb_miss_i)
         perf_counter_d[riscv::CSR_MDTLB_MISS] = perf_counter_q[riscv::CSR_MDTLB_MISS] + 1'b1;
+
+      // if (ipref_miss_i) //TODO(imad): prefetcher perf counters
+      //   perf_counter_d[riscv::CSR_IPREF_MISS] = perf_counter_q[riscv::CSR_IPREF_MISS] + 1'b1;
+
+      // if (ipref_hit_i)
+      //   perf_counter_d[riscv::CSR_IPREF_HIT] = perf_counter_q[riscv::CSR_IPREF_HIT] + 1'b1;
 
       // instruction related perf counters
       for (int unsigned i = 0; i < NR_COMMIT_PORTS; i++) begin
