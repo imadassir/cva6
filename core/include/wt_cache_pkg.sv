@@ -136,6 +136,18 @@ package wt_cache_pkg;
     logic [CACHE_ID_WIDTH-1:0]                       tid;         // threadi id (used as transaction id in Ariane)
   } icache_rtrn_t;
 
+  // I-prefetcher interface
+  typedef struct packed {
+      logic [riscv::PLEN-1:0]                          paddr;       // physical address
+      logic [CACHE_ID_WIDTH-1:0]                       tid;         // thread id (used as transaction id in Ariane)
+  } ipref_req_t;
+
+  typedef struct packed {
+    logic [ariane_pkg::ICACHE_LINE_WIDTH-1:0]        data;        // full cache line width
+    logic [CACHE_ID_WIDTH-1:0]                       tid;         // thread id (used as transaction id in Ariane)
+  } ipref_rtrn_t;
+
+
   // dcache interface
   typedef struct packed {
     logic                                            vld;         // invalidate only affected way

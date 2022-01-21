@@ -574,7 +574,9 @@ module ariane import ariane_pkg::*; #(
     .if_empty_i        ( ~fetch_valid_if_id     ),
     .ex_i              ( ex_commit              ),
     .eret_i            ( eret                   ),
-    .resolved_branch_i ( resolved_branch        )
+    .resolved_branch_i ( resolved_branch        ),
+    .ipref_hit_i       ( ipref_hit_pref         ),
+    .ipref_miss_i      ( ipref_miss_pref        )
   );
 
   // ------------
@@ -658,7 +660,9 @@ module ariane import ariane_pkg::*; #(
     // note: this only works with one cacheable region
     // not as important since this cache subsystem is about to be
     // deprecated
-    .ArianeCfg             ( ArianeCfg                   )
+    .ArianeCfg             ( ArianeCfg                   ),
+    .SB_DEPTH              ( 4                           ),
+    .LOG2_PAGE_SIZE        ( 12                          ),
   ) i_cache_subsystem (
     // to D$
     .clk_i                 ( clk_i                       ),
@@ -672,6 +676,15 @@ module ariane import ariane_pkg::*; #(
     .icache_areq_o         ( icache_areq_cache_ex        ),
     .icache_dreq_i         ( icache_dreq_if_cache        ),
     .icache_dreq_o         ( icache_dreq_cache_if        ),
+    // I-prefetcher
+    .ipref_en_i            ( ipref_en_csr), //TODO(imad): make CSR to enable prefetcher   
+    .ipref_flush_i         ( ipref_flush_ctrl), //TODO(imad): add logic in controller to flush prefetcher       
+    .ipref_hit_o           ( ipref_hit_perf),  
+    .ipref_miss_o          ( ipref_miss_perf),   
+
+
+
+
     // D$
     .dcache_enable_i       ( dcache_en_csr_nbdcache      ),
     .dcache_flush_i        ( dcache_flush_ctrl_cache     ),

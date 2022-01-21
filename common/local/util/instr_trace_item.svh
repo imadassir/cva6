@@ -186,7 +186,7 @@ class instr_trace_item;
             riscv::CSR_CYCLE:      return "cycle";
             riscv::CSR_TIME:       return "time";
             riscv::CSR_INSTRET:    return "instret";
-
+            //TODO(imad): maybe add returns for added perf counters
             default:        return $sformatf("%0h", addr);
         endcase
     endfunction

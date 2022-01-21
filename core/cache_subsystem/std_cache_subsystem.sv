@@ -16,7 +16,9 @@
 
 
 module std_cache_subsystem import ariane_pkg::*; import std_cache_pkg::*; #(
-    parameter ariane_cfg_t ArianeCfg = ArianeDefaultConfig  // contains cacheable regions
+    parameter ariane_cfg_t ArianeCfg = ArianeDefaultConfig,  // contains cacheable regions
+    parameter SB_DEPTH = 4, //Number of entries in the Stream Buffer
+    parameter LOG2_PAGE_SIZE = 12   //assuming 4K pages
 ) (
     input logic                            clk_i,
     input logic                            rst_ni,
@@ -25,6 +27,12 @@ module std_cache_subsystem import ariane_pkg::*; import std_cache_pkg::*; #(
     input  logic                           icache_en_i,            // enable icache (or bypass e.g: in debug mode)
     input  logic                           icache_flush_i,         // flush the icache, flush and kill have to be asserted together
     output logic                           icache_miss_o,          // to performance counter
+    // I-Prefetcher
+    input  logic                           ipref_en_i,             // enable the instruction prefetcher
+    input  logic                           ipref_flush_i,          // flush the insruction prefetcher
+    output logic                           ipref_hit_o,            // to performance counter 
+    output logic                           ipref_miss_o,           // to performance counter
+                               
     // address translation requests
     input  icache_areq_i_t                 icache_areq_i,          // to/from frontend
     output icache_areq_o_t                 icache_areq_o,
@@ -49,10 +57,21 @@ module std_cache_subsystem import ariane_pkg::*; import std_cache_pkg::*; #(
     input  ariane_axi::resp_t              axi_resp_i
 );
 
-  assign wbuffer_empty_o = 1'b1;
+   //definitions needed for the prefetcher
+   logic SB_full;
+   logic SB_empty;
+   logic [riscv::PLEN-1:0]pf_addr_fromCache;
+   logic [ICACHE_LINE_WIDTH-1:0] pf_data;
+   logic pf_req;
+   logic pf_found_block;
+   logic pf_ready_block;
+
+    assign wbuffer_empty_o = 1'b1;
 
     ariane_axi::req_t  axi_req_icache;
     ariane_axi::resp_t axi_resp_icache;
+    ariane_axi::req_t  axi_req_ipref;
+    ariane_axi::resp_t axi_resp_ipref;
     ariane_axi::req_t  axi_req_bypass;
     ariane_axi::resp_t axi_resp_bypass;
     ariane_axi::req_t  axi_req_data;
@@ -74,6 +93,46 @@ module std_cache_subsystem import ariane_pkg::*; import std_cache_pkg::*; #(
         .axi_req_o  ( axi_req_icache        ),
         .axi_resp_i ( axi_resp_icache       )
     );
+    
+    stream_buffer_axi_wrapper #(
+    .SB_DEPTH           ( SB_DEPTH         ), 
+    .LOG2_PAGE_SIZE     ( LOG2_PAGE_SIZE   ),   
+    .TxId               ( 2                )     
+  ) i_ipref_axi_wrapper (
+    .clk_i            (clk_i             ),
+    .rst_ni           (rst_ni            ),
+    .flush_i          (ipref_flush_i     ),
+    .en_i             (ipref_en_i        ),
+    .SB_full_o        (SB_full         ), //stream buffer full
+    .SB_empty_o       (SB_empty), //stream buffer empty 
+    
+    .addr_fromCache_i (pf_addr_fromCache ),     //address that missed in cache
+    .pf_data_o        (pf_data           ),     //prefetched data
+    .pf_req_i         (pf_req            ),   //prefetch request, i.e. cache miss so need to check the stream buffer
+    .found_block_o    (pf_found_block    ),     //indicates if the request is found in the stream buffer or not
+    .ready_block_o    (pf_ready_block    ),
+    
+    .axi_req_o        (axi_req_ipref     ),
+    .axi_resp_i       (axi_resp_ipref    ),
+    
+    .ipref_hit_o      (ipref_hit_o       ),
+    .ipref_miss_o     (ipref_miss_o      )
+  );
+  
+   // -----------------------
+   // Arbitrate I$ requests to main memory/prefetcher
+   // -----------------------
+   always_comb begin
+        if(pf_found_block) begin
+            //do nothing, wait for the prefetcher to get the data needed to be able to send it back to the I$
+        end else if(pf_found_block && pf_ready_block) begin
+            //return the data to the I$, i.e. set return data mux select to prefetcher data, not main memory
+        end else begin
+            //issue request to memory
+        end
+   end 
+   
+   
 
    // decreasing priority
    // Port 0: PTW
@@ -106,15 +165,15 @@ module std_cache_subsystem import ariane_pkg::*; import std_cache_pkg::*; #(
 
 
     // AR Channel
-    stream_arbiter #(
+    stream_arbiter #(	//TODO(imad): might need to modify arbiter to modify prefetch requests' priority
         .DATA_T ( ariane_axi::ar_chan_t ),
-        .N_INP  ( 3                     )
+        .N_INP  ( 4                     )
     ) i_stream_arbiter_ar (
         .clk_i,
         .rst_ni,
-        .inp_data_i  ( {axi_req_icache.ar, axi_req_bypass.ar, axi_req_data.ar} ),
-        .inp_valid_i ( {axi_req_icache.ar_valid, axi_req_bypass.ar_valid, axi_req_data.ar_valid} ),
-        .inp_ready_o ( {axi_resp_icache.ar_ready, axi_resp_bypass.ar_ready, axi_resp_data.ar_ready} ),
+        .inp_data_i  ( {axi_req_icache.ar, axi_req_bypass.ar, axi_req_data.ar, axi_req_ipref.ar} ),
+        .inp_valid_i ( {axi_req_icache.ar_valid, axi_req_bypass.ar_valid, axi_req_data.ar_valid, axi_req_ipref.ar_valid} ),
+        .inp_ready_o ( {axi_resp_icache.ar_ready, axi_resp_bypass.ar_ready, axi_resp_data.ar_ready, axi_resp_ipref.ar_ready} ),
         .oup_data_o  ( axi_req_o.ar        ),
         .oup_valid_o ( axi_req_o.ar_valid  ),
         .oup_ready_i ( axi_resp_i.ar_ready )
@@ -123,13 +182,13 @@ module std_cache_subsystem import ariane_pkg::*; import std_cache_pkg::*; #(
     // AW Channel
     stream_arbiter #(
         .DATA_T ( ariane_axi::aw_chan_t ),
-        .N_INP  ( 3                     )
+        .N_INP  ( 4                     )
     ) i_stream_arbiter_aw (
         .clk_i,
         .rst_ni,
-        .inp_data_i  ( {axi_req_icache.aw, axi_req_bypass.aw, axi_req_data.aw} ),
-        .inp_valid_i ( {axi_req_icache.aw_valid, axi_req_bypass.aw_valid, axi_req_data.aw_valid} ),
-        .inp_ready_o ( {axi_resp_icache.aw_ready, axi_resp_bypass.aw_ready, axi_resp_data.aw_ready} ),
+        .inp_data_i  ( {axi_req_icache.aw, axi_req_bypass.aw, axi_req_data.aw, axi_req_ipref.aw} ),
+        .inp_valid_i ( {axi_req_icache.aw_valid, axi_req_bypass.aw_valid, axi_req_data.aw_valid, axi_req_ipref.aw_valid} ),
+        .inp_ready_o ( {axi_resp_icache.aw_ready, axi_resp_bypass.aw_ready, axi_resp_data.aw_ready, axi_resp_ipref.aw_ready} ),
         .oup_data_o  ( axi_req_o.aw        ),
         .oup_valid_o ( axi_req_o.aw_valid  ),
         .oup_ready_i ( axi_resp_i.aw_ready )
@@ -137,9 +196,11 @@ module std_cache_subsystem import ariane_pkg::*; import std_cache_pkg::*; #(
 
     // WID has been removed in AXI 4 so we need to keep track which AW request has been accepted
     // to forward the correct write data.
+    //TODO(imad): should add the prefetcher case
     always_comb begin
         w_select = 0;
         unique case (axi_req_o.aw.id)
+            4'b1101:                            w_select = 3; // iprefetcher
             4'b1100:                            w_select = 2; // dcache
             4'b1000, 4'b1001, 4'b1010, 4'b1011: w_select = 1; // bypass
             default:                            w_select = 0; // icache
@@ -150,8 +211,8 @@ module std_cache_subsystem import ariane_pkg::*; import std_cache_pkg::*; #(
     // option made problems during synthesis (timing loop)
     fifo_v3 #(
       .DATA_WIDTH   ( 2    ),
-      // we can have a maximum of 4 oustanding transactions as each port is blocking
-      .DEPTH        ( 4    )
+      // we can have a maximum of 4 + 1 oustanding transactions as each port is blocking // +1 port for the prefetcher
+      .DEPTH        ( 5    )	
     ) i_fifo_w_channel (
       .clk_i      ( clk_i           ),
       .rst_ni     ( rst_ni          ),
@@ -175,11 +236,11 @@ module std_cache_subsystem import ariane_pkg::*; import std_cache_pkg::*; #(
 
     stream_mux #(
         .DATA_T ( ariane_axi::w_chan_t ),
-        .N_INP  ( 3                    )
+        .N_INP  ( 4                    )
     ) i_stream_mux_w (
-        .inp_data_i  ( {axi_req_data.w, axi_req_bypass.w, axi_req_icache.w} ),
-        .inp_valid_i ( {axi_req_data.w_valid, axi_req_bypass.w_valid, axi_req_icache.w_valid} ),
-        .inp_ready_o ( {axi_resp_data.w_ready, axi_resp_bypass.w_ready, axi_resp_icache.w_ready} ),
+        .inp_data_i  ( {axi_req_ipref.w,axi_req_data.w, axi_req_bypass.w, axi_req_icache.w} ),
+        .inp_valid_i ( {axi_req_ipref.w_valid,axi_req_data.w_valid, axi_req_bypass.w_valid, axi_req_icache.w_valid} ),
+        .inp_ready_o ( {axi_resp_ipref.w_ready,axi_resp_data.w_ready, axi_resp_bypass.w_ready, axi_resp_icache.w_ready} ),
         .inp_sel_i   ( w_select_arbiter   ),
         .oup_data_o  ( axi_req_o.w        ),
         .oup_valid_o ( axi_req_o.w_valid  ),
@@ -190,8 +251,10 @@ module std_cache_subsystem import ariane_pkg::*; import std_cache_pkg::*; #(
     // 0000            -> I$
     // 10[00|10|01|11] -> Bypass
     // 1100            -> D$
+    // 1101            -> I-prefetcher
     // R Channel
     assign axi_resp_icache.r = axi_resp_i.r;
+    assign axi_resp_ipref.r  = axi_resp_i.r;
     assign axi_resp_bypass.r = axi_resp_i.r;
     assign axi_resp_data.r   = axi_resp_i.r;
 
@@ -203,24 +266,26 @@ module std_cache_subsystem import ariane_pkg::*; import std_cache_pkg::*; #(
             4'b1100:                            r_select = 0; // dcache
             4'b1000, 4'b1001, 4'b1010, 4'b1011: r_select = 1; // bypass
             4'b0000:                            r_select = 2; // icache
+            4'b1101:                            r_select = 3; // iprefetcher
             default:                            r_select = 0;
         endcase
     end
 
-    stream_demux #(
-        .N_OUP ( 3 )
+    stream_demux #(	
+        .N_OUP ( 4 )
     ) i_stream_demux_r (
         .inp_valid_i ( axi_resp_i.r_valid ),
         .inp_ready_o ( axi_req_o.r_ready  ),
         .oup_sel_i   ( r_select           ),
-        .oup_valid_o ( {axi_resp_icache.r_valid, axi_resp_bypass.r_valid, axi_resp_data.r_valid} ),
-        .oup_ready_i ( {axi_req_icache.r_ready, axi_req_bypass.r_ready, axi_req_data.r_ready} )
+        .oup_valid_o ( {axi_resp_icache.r_valid, axi_resp_bypass.r_valid, axi_resp_data.r_valid, axi_resp_ipref.r_valid} ),
+        .oup_ready_i ( {axi_req_icache.r_ready, axi_req_bypass.r_ready, axi_req_data.r_ready, axi_req_ipref.r_ready } )
     );
 
     // B Channel
     logic [1:0] b_select;
 
     assign axi_resp_icache.b = axi_resp_i.b;
+    assign axi_resp_ipref.b  = axi_resp_i.b;
     assign axi_resp_bypass.b = axi_resp_i.b;
     assign axi_resp_data.b   = axi_resp_i.b;
 
@@ -230,18 +295,19 @@ module std_cache_subsystem import ariane_pkg::*; import std_cache_pkg::*; #(
             4'b1100:                            b_select = 0; // dcache
             4'b1000, 4'b1001, 4'b1010, 4'b1011: b_select = 1; // bypass
             4'b0000:                            b_select = 2; // icache
+            4'b1101:                            b_select = 3; // iprefetcher
             default:                            b_select = 0;
         endcase
     end
 
-    stream_demux #(
-        .N_OUP ( 3 )
+    stream_demux #(	
+        .N_OUP ( 4 )
     ) i_stream_demux_b (
         .inp_valid_i ( axi_resp_i.b_valid ),
         .inp_ready_o ( axi_req_o.b_ready  ),
         .oup_sel_i   ( b_select           ),
-        .oup_valid_o ( {axi_resp_icache.b_valid, axi_resp_bypass.b_valid, axi_resp_data.b_valid} ),
-        .oup_ready_i ( {axi_req_icache.b_ready, axi_req_bypass.b_ready, axi_req_data.b_ready} )
+        .oup_valid_o ( {axi_resp_ipref.b_valid,axi_resp_icache.b_valid, axi_resp_bypass.b_valid, axi_resp_data.b_valid} ),
+        .oup_ready_i ( {axi_req_ipref.b_ready,axi_req_icache.b_ready, axi_req_bypass.b_ready, axi_req_data.b_ready} )
     );
 
 ///////////////////////////////////////////////////////
