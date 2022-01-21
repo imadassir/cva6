@@ -77,6 +77,7 @@ module csr_regfile import ariane_pkg::*; #(
     output logic                  single_step_o,              // we are in single-step mode
     // Caches
     output logic                  icache_en_o,                // L1 ICache Enable
+    output logic                  ipref_en_o,                 // L1 IPrefetcher Enable
     output logic                  dcache_en_o,                // L1 DCache Enable
     // Performance Counter
     output logic  [4:0]           perf_addr_o,                // read/write address to performance counter module (up to 29 aux counters possible in riscv encoding.h)
@@ -133,6 +134,7 @@ module csr_regfile import ariane_pkg::*; #(
     riscv::xlen_t stval_q,     stval_d;
     riscv::xlen_t dcache_q,    dcache_d;
     riscv::xlen_t icache_q,    icache_d;
+    riscv::xlen_t ipref_en_q,  ipref_en_d;
 
     logic        wfi_d,       wfi_q;
 
@@ -263,7 +265,7 @@ module csr_regfile import ariane_pkg::*; #(
                 riscv::CSR_MIF_EMPTY,
                 riscv::CSR_IPREF_MISS,
                 riscv::CSR_IPREF_HIT,
-                riscv::CSR_MHPM_COUNTER_19,
+                riscv::CSR_IPREF_EN:            csr_rdata = ipref_en_q;
                 riscv::CSR_MHPM_COUNTER_20,
                 riscv::CSR_MHPM_COUNTER_21,
                 riscv::CSR_MHPM_COUNTER_22,
@@ -379,6 +381,7 @@ module csr_regfile import ariane_pkg::*; #(
         mtval_d                 = mtval_q;
         dcache_d                = dcache_q;
         icache_d                = icache_q;
+        ipref_en_d              = ipref_en_q;
 
         sepc_d                  = sepc_q;
         scause_d                = scause_q;
@@ -575,7 +578,7 @@ module csr_regfile import ariane_pkg::*; #(
                 riscv::CSR_MIF_EMPTY,
                 riscv::CSR_IPREF_MISS,
                 riscv::CSR_IPREF_HIT,
-                riscv::CSR_MHPM_COUNTER_19,
+                riscv::CSR_IPREF_EN:           ipref_en_d     = {{riscv::XLEN-1{1'b0}}, csr_wdata[0]}; // enable bit 
                 riscv::CSR_MHPM_COUNTER_20,
                 riscv::CSR_MHPM_COUNTER_21,
                 riscv::CSR_MHPM_COUNTER_22,
@@ -1055,6 +1058,8 @@ module csr_regfile import ariane_pkg::*; #(
 `endif
     assign dcache_en_o      = dcache_q[0];
 
+    assign ipref_en_o       = ipref_en_q[0];
+
     // determine if mprv needs to be considered if in debug mode
     assign mprv             = (debug_mode_q && !dcsr_q.mprven) ? 1'b0 : mstatus_q.mprv;
     assign debug_mode_o     = debug_mode_q;
@@ -1094,6 +1099,7 @@ module csr_regfile import ariane_pkg::*; #(
             mtval_q                <= {riscv::XLEN{1'b0}};
             dcache_q               <= {{riscv::XLEN-1{1'b0}}, 1'b1};
             icache_q               <= {{riscv::XLEN-1{1'b0}}, 1'b1};
+            ipref_en_q             <= {{riscv::XLEN-1{1'b0}}, 1'b1};
             // supervisor mode registers
             sepc_q                 <= {riscv::XLEN{1'b0}};
             scause_q               <= {riscv::XLEN{1'b0}};
@@ -1166,6 +1172,8 @@ module csr_regfile import ariane_pkg::*; #(
                     pmpaddr_q[i] <= '0;
                 end
             end
+            //user-added
+            ipref_en_q             <= ipref_en_d;
         end
     end
 

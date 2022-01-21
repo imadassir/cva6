@@ -187,6 +187,7 @@ module ariane import ariane_pkg::*; #(
   logic                     dcache_en_csr_nbdcache;
   logic                     csr_write_fflags_commit_cs;
   logic                     icache_en_csr;
+  logic                     ipref_en_csr;
   logic                     debug_mode;
   logic                     single_step_csr_commit;
   riscv::pmpcfg_t [15:0]    pmpcfg;
@@ -199,10 +200,13 @@ module ariane import ariane_pkg::*; #(
   logic                     we_csr_perf;
 
   logic                     icache_flush_ctrl_cache;
+  logic                     ipref_flush_ctrl;
   logic                     itlb_miss_ex_perf;
   logic                     dtlb_miss_ex_perf;
   logic                     dcache_miss_cache_perf;
   logic                     icache_miss_cache_perf;
+  logic                     ipref_hit_perf;
+  logic                     ipref_miss_perf;
   // --------------
   // CTRL <-> *
   // --------------
@@ -540,6 +544,7 @@ module ariane import ariane_pkg::*; #(
     .single_step_o          ( single_step_csr_commit        ),
     .dcache_en_o            ( dcache_en_csr_nbdcache        ),
     .icache_en_o            ( icache_en_csr                 ),
+    .ipref_en_o             ( ipref_en_csr                  ),
     .perf_addr_o            ( addr_csr_perf                 ),
     .perf_data_o            ( data_csr_perf                 ),
     .perf_data_i            ( data_perf_csr                 ),
@@ -575,8 +580,8 @@ module ariane import ariane_pkg::*; #(
     .ex_i              ( ex_commit              ),
     .eret_i            ( eret                   ),
     .resolved_branch_i ( resolved_branch        ),
-    .ipref_hit_i       ( ipref_hit_pref         ),
-    .ipref_miss_i      ( ipref_miss_pref        )
+    .ipref_hit_i       ( ipref_hit_perf         ),
+    .ipref_miss_i      ( ipref_miss_perf        )
   );
 
   // ------------
@@ -608,6 +613,7 @@ module ariane import ariane_pkg::*; #(
     .flush_commit_i         ( flush_commit                  ),
 
     .flush_icache_o         ( icache_flush_ctrl_cache       ),
+    .flush_ipref_o          ( ipref_flush_ctrl              ),
     .*
   );
 
@@ -677,8 +683,8 @@ module ariane import ariane_pkg::*; #(
     .icache_dreq_i         ( icache_dreq_if_cache        ),
     .icache_dreq_o         ( icache_dreq_cache_if        ),
     // I-prefetcher
-    .ipref_en_i            ( ipref_en_csr), //TODO(imad): make CSR to enable prefetcher   
-    .ipref_flush_i         ( ipref_flush_ctrl), //TODO(imad): add logic in controller to flush prefetcher       
+    .ipref_en_i            ( ipref_en_csr),  
+    .ipref_flush_i         ( ipref_flush_ctrl),     
     .ipref_hit_o           ( ipref_hit_perf),  
     .ipref_miss_o          ( ipref_miss_perf),   
 

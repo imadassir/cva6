@@ -23,6 +23,7 @@ module controller import ariane_pkg::*; (
     output logic            flush_ex_o,             // Flush EX stage
     output logic            flush_bp_o,             // Flush branch predictors
     output logic            flush_icache_o,         // Flush ICache
+    output logic            flush_ipref_o,          // Flush IPrefetcher's stream buffer
     output logic            flush_dcache_o,         // Flush DCache
     input  logic            flush_dcache_ack_i,     // Acknowledge the whole DCache Flush
     output logic            flush_tlb_o,            // Flush TLBs
@@ -56,6 +57,7 @@ module controller import ariane_pkg::*; (
         flush_ex_o             = 1'b0;
         flush_dcache           = 1'b0;
         flush_icache_o         = 1'b0;
+        flush_ipref_o          = 1'b0;
         flush_tlb_o            = 1'b0;
         flush_bp_o             = 1'b0;
         // ------------
@@ -97,6 +99,7 @@ module controller import ariane_pkg::*; (
             flush_id_o             = 1'b1;
             flush_ex_o             = 1'b1;
             flush_icache_o         = 1'b1;
+            flush_ipref_o          = 1'b1;
 // this is not needed in the case since we
 // have a write-through cache in this case
 `ifndef WT_DCACHE
